@@ -118,4 +118,5 @@ def write_excel_for_template(value: dict, wb_tmp: Workbook) -> None:
             target: Worksheet = wb_tmp.create_sheet("new_" + sheet_name)
             wst.write_sheet(source, obj_value, target)
             wb_tmp.remove(source)
+            target.views.sheetView = source.views.sheetView
             target.title = sheet_name
