@@ -12,8 +12,11 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet import worksheet
 from openpyxl.cell import Cell, MergedCell
 import re
+
+from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.worksheet.worksheet import Worksheet
-from utils.tool import to_flat
+from utils.tool import to_flat, char_to_num, pos_char_to_num, num_to_pos_char
+
 
 class work_sheet_tool():
 
@@ -27,8 +30,8 @@ class work_sheet_tool():
         target_cell.alignment = copy.copy(source_cell.alignment)
         target_cell.value = source_cell.value
 
-    def write_sheet(self, ws: Worksheet, obj_value: dict, lws: Worksheet):
-        pos: list = [list(row) for row in ws.iter_rows()]
+    def write_sheet(self, source: Worksheet, obj_value: dict, target: Worksheet):
+        pos: list = [list(row) for row in source.iter_rows()]
         pos_mapping: collections.defaultdict = collections.defaultdict(list)
         rlen: int = len(pos)
         clen: int = len(pos[0])
@@ -88,25 +91,40 @@ class work_sheet_tool():
                 w += maxn
                 start_row, end_row = i, i + maxn
             i += 1
-        lws.insert_rows(len(pos))
+        target.insert_rows(len(pos))
         for i, r in enumerate(pos):
             for j, c in enumerate(r):
                 source_cell: [Cell, MergedCell] = pos[i][j]
-                target_cell: Cell = lws.cell(i + 1, j + 1)
+                target_cell: Cell = target.cell(i + 1, j + 1)
                 self.copy_cell(source_cell, target_cell)
-        for cell in ws.merged_cells:
+        for cell in source.merged_cells:
             cell_min_num = pos_mapping[cell.min_row - 1][0] + 1
             cell_max_num = pos_mapping[cell.max_row - 1][0] + 1
-            lws.merge_cells(start_row=cell_min_num, start_column=cell.min_col,
+            target.merge_cells(start_row=cell_min_num, start_column=cell.min_col,
                             end_column=cell.max_col, end_row=cell_max_num)
         for key in merge_dict:
             value = merge_dict[key]
-            lws.merge_cells(start_row=value[0], start_column=value[1],
+            target.merge_cells(start_row=value[0], start_column=value[1],
                             end_column=value[3], end_row=value[2])
-        lws.column_dimensions = copy.deepcopy(ws.column_dimensions)
-        for index in ws.row_dimensions:
+        target.column_dimensions = copy.deepcopy(source.column_dimensions)
+        for index in source.row_dimensions:
             for pos in pos_mapping.get(index, []):
-                lws.row_dimensions[pos].height = ws.row_dimensions[index].height
+                target.row_dimensions[pos].height = source.row_dimensions[index].height
+        self.write_table(source, target, pos_mapping)
+
+    def write_table(self, source: Worksheet, target: Worksheet, pos_mapping: dict):
+        print(source.tables)
+        tab: tuple
+        for tab in source.tables.items():
+            ...
+            left_top, right_bottom = pos_char_to_num(tab[1])
+            left_top = (left_top[0], pos_mapping[left_top[1]][0])
+            # bug后续修改
+            right_bottom = (right_bottom[0], pos_mapping.get(right_bottom[1], [right_bottom[1] + 1])[0])
+            ctab = copy.deepcopy(source.tables[tab[0]])
+            ctab.ref = f"{num_to_pos_char(left_top)}:{num_to_pos_char(right_bottom)}"
+            ctab.autoFilter.ref = ctab.ref
+            target.add_table(ctab)
 
 def write_excel_for_template(value: dict, wb_tmp: Workbook) -> None:
     sheet_name: str
@@ -116,7 +134,7 @@ def write_excel_for_template(value: dict, wb_tmp: Workbook) -> None:
         if sheet_name in wb_tmp.sheetnames:
             source: worksheet = wb_tmp[sheet_name]
             target: Worksheet = wb_tmp.create_sheet("new_" + sheet_name)
-            wst.write_sheet(source, obj_value, target)
             wb_tmp.remove(source)
+            wst.write_sheet(source, obj_value, target)
             target.views.sheetView = source.views.sheetView
             target.title = sheet_name
