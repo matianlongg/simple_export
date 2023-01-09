@@ -132,9 +132,13 @@ def write_excel_for_template(value: dict, wb_tmp: Workbook) -> None:
     for sheet_name, obj in value.items():
         obj_value: dict = to_flat(obj)
         if sheet_name in wb_tmp.sheetnames:
-            source: worksheet = wb_tmp[sheet_name]
+            source: Worksheet = wb_tmp[sheet_name]
             target: Worksheet = wb_tmp.create_sheet("new_" + sheet_name)
             wb_tmp.remove(source)
             wst.write_sheet(source, obj_value, target)
             target.views.sheetView = source.views.sheetView
             target.title = sheet_name
+            target._rels = source._rels
+            target._drawing = source._drawing
+            target.title = sheet_name
+            target.conditional_formatting = source.conditional_formatting
