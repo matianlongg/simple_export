@@ -9,18 +9,15 @@ import collections
 import copy
 import traceback
 from openpyxl.workbook import Workbook
-from openpyxl.worksheet import worksheet
-from openpyxl.cell import Cell, MergedCell
+from openpyxl.cell import Cell, MergedCell, cell
 import re
-
-from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.worksheet.worksheet import Worksheet
-from utils.tool import to_flat, char_to_num, pos_char_to_num, num_to_pos_char
+from utils.tool import to_flat, pos_char_to_num, num_to_pos_char
 
 
 class work_sheet_tool():
 
-    def copy_cell(self, source_cell: Cell, target_cell: Cell) -> None:
+    def copy_cell(self, source_cell: cell, target_cell: cell) -> None:
         target_cell._style = copy.copy(source_cell._style)
         target_cell.font = copy.copy(source_cell.font)
         target_cell.border = copy.copy(source_cell.border)
@@ -29,6 +26,12 @@ class work_sheet_tool():
         target_cell.protection = copy.copy(source_cell.protection)
         target_cell.alignment = copy.copy(source_cell.alignment)
         target_cell.value = source_cell.value
+
+    def write_attr(self, source: Worksheet, target: Worksheet):
+        target.views.sheetView = source.views.sheetView
+        target._rels = source._rels
+        target._drawing = source._drawing
+        target.conditional_formatting = source.conditional_formatting
 
     def write_sheet(self, source: Worksheet, obj_value: dict, target: Worksheet):
         pos: list = [list(row) for row in source.iter_rows()]
@@ -111,16 +114,14 @@ class work_sheet_tool():
             for pos in pos_mapping.get(index, []):
                 target.row_dimensions[pos].height = source.row_dimensions[index].height
         self.write_table(source, target, pos_mapping)
+        self.write_attr(source, target)
 
     def write_table(self, source: Worksheet, target: Worksheet, pos_mapping: dict):
-        print(source.tables)
         tab: tuple
         for tab in source.tables.items():
-            ...
             left_top, right_bottom = pos_char_to_num(tab[1])
-            left_top = (left_top[0], pos_mapping[left_top[1]][0])
-            # bug后续修改
-            right_bottom = (right_bottom[0], pos_mapping.get(right_bottom[1], [right_bottom[1] + 1])[0])
+            left_top = (left_top[0], pos_mapping[left_top[1] - 1][0] + 1)
+            right_bottom = (right_bottom[0], pos_mapping.get(right_bottom[1] - 1, [right_bottom[1]])[0] + 1)
             ctab = copy.deepcopy(source.tables[tab[0]])
             ctab.ref = f"{num_to_pos_char(left_top)}:{num_to_pos_char(right_bottom)}"
             ctab.autoFilter.ref = ctab.ref
@@ -136,9 +137,4 @@ def write_excel_for_template(value: dict, wb_tmp: Workbook) -> None:
             target: Worksheet = wb_tmp.create_sheet("new_" + sheet_name)
             wb_tmp.remove(source)
             wst.write_sheet(source, obj_value, target)
-            target.views.sheetView = source.views.sheetView
             target.title = sheet_name
-            target._rels = source._rels
-            target._drawing = source._drawing
-            target.title = sheet_name
-            target.conditional_formatting = source.conditional_formatting

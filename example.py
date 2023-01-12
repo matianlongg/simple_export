@@ -4,13 +4,13 @@
 # @Author  : mtl
 # @File    : example.py
 # @Description : *****
-
+import traceback
 
 from openpyxl import load_workbook
 
 from excel import write_excel_for_template
 
-wb_tmp = load_workbook(f'./111.xlsx')
+wb_tmp = load_workbook(f'./template/excel1.xlsx')
 value = {
     "家庭财产库存清单": {
         "room": [
@@ -58,4 +58,5 @@ value = {
 }
 write_excel_for_template(value=value, wb_tmp=wb_tmp)
 wb_tmp.save("./val.xlsx")
-wb_tmp = load_workbook(f'./val.xlsx', data_only=True, read_only=True)
+wb_tmp.close()
+# wb_tmp = load_workbook(f'./val.xlsx', data_only=True, read_only=True)
