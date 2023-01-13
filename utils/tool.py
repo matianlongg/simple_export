@@ -4,7 +4,9 @@
 # @Author  : mtl
 # @File    : tool.py
 # @Description : *****
+import math
 import re
+import time
 from queue import Queue
 from typing import List
 
@@ -66,7 +68,20 @@ def convertToTitle(columnNumber: int) -> str:
 def num_to_pos_char(t: tuple) -> str:
     return convertToTitle(t[0]) + str(t[1])
 
+def getNowTime(format="%Y-%m-%d %H:%M:%S"):
+    """
+        获取现在的时间
+    """
+    return time.strftime(format, time.localtime())
+
+
+def pixels_to_points(value, dpi=96):
+    """96 dpi, 72i"""
+    return value * 72 / dpi
+
+def points_to_pixels(value, dpi=96):
+    return int(math.ceil(value * dpi / 72))
+
 if __name__ == '__main__':
     print(ord("c"), ord("C") - 64, ord("A") - 64)
     print(char_to_num("AA77"))
-
