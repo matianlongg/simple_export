@@ -9,7 +9,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from simple_export.excel import write_excel_for_template
+from excel import write_excel_for_template
 
 def test1():
     wb_tmp = load_workbook(Path(__file__).parent / 'template/excel1.xlsx')

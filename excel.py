@@ -17,7 +17,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.cell import Cell, MergedCell, cell
 import re
 from openpyxl.worksheet.worksheet import Worksheet
-from simple_export.utils.tool import to_flat, pos_char_to_num, num_to_pos_char, char_to_num, points_to_pixels
+from utils.tool import to_flat, pos_char_to_num, num_to_pos_char, char_to_num, points_to_pixels
 from openpyxl.drawing.image import Image as oImage
 
 """
