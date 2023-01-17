@@ -6,7 +6,6 @@ simple_export是一款导出工具包，目标是根据模板快速导出，基�
 
 ```
 pip install simple-export
-
 ```
 
 ## 二、使用
@@ -126,10 +125,8 @@ if __name__ == '__main__':
 > 
 > 值 key_b
 
-
-
-![](C:\Users\e9\AppData\Roaming\marktext\images\2023-01-17-17-07-05-image.png)
+![](http://github.com/mtl940610/simple_export/blob/main/static/2023-01-17-17-07-05-image.png?raw=true)
 
 处理后
 
-![](C:\Users\e9\AppData\Roaming\marktext\images\2023-01-17-17-19-50-image.png)
+![](https://github.com/mtl940610/simple_export/blob/main/static/2023-01-17-17-19-50-image.png?raw=true)
