@@ -160,7 +160,7 @@ class work_sheet_tool():
                                     if key in obj_value.keys():
                                         if n == 0:
                                             col.value = obj_value[key]
-                                        elif n + i > rlen or pos[n + i][j] != 0:
+                                        elif n + i >= len(pos) or pos[n + i][j] != 0:
                                             ls_col = [0] * clen
                                             ccol = copy.copy(col)
                                             ccol.value = obj_value[key]
