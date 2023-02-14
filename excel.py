@@ -17,17 +17,20 @@ from openpyxl.workbook import Workbook
 from openpyxl.cell import Cell, MergedCell, cell
 import re
 from openpyxl.worksheet.worksheet import Worksheet
-from utils.tool import to_flat, pos_char_to_num, num_to_pos_char, char_to_num, points_to_pixels
+from simple_export.utils.tool import to_flat, pos_char_to_num, num_to_pos_char, char_to_num, points_to_pixels
 from openpyxl.drawing.image import Image as oImage
-
+from simple_export.utils.util import dynamic_method
 """
 基于openpyxl 根据字典数据导出
 """
+
 class work_sheet_tool():
-    def __init__(self, convert_pic=False):
+    def __init__(self, convert_pic=False, dynamic_method=dynamic_method()):
         self.convert_pic = convert_pic
         self.active_sheet: Worksheet = None
         self.active_source_sheet: Worksheet = None
+        self.task_queue = collections.deque()
+        self.dynamic_method = dynamic_method
 
     def copy_cell(self, source_cell: cell, target_cell: cell) -> None:
         """
@@ -62,10 +65,11 @@ class work_sheet_tool():
                 right_bottom: list
                 if ":" in cell.coord:
                     left_top, right_bottom = pos_char_to_num(cell.coord)
-                    right_bottom = (right_bottom[0], pos_mapping.get(pos_mapping[left_top[1] - 1][-1] + 1, [right_bottom[1]])[0] + 1)
+                    right_bottom = (right_bottom[0], pos_mapping[right_bottom[1] - 1][right_bottom[0] - 1][-1] + 1)
                 else:
                     x, y = char_to_num(cell.coord)
-                    left_top, right_bottom = [x, y], [x, pos_mapping[y - 1][-1] + 1]
+                    left_top, right_bottom = [x, y], [x, pos_mapping[y - 1][x - 1][-1] + 1]
+
                 for rule in con.rules:
                     target.conditional_formatting.add(f"{num_to_pos_char(left_top)}:{num_to_pos_char(right_bottom)}", rule)
         target.data_validations = source.data_validations
@@ -102,7 +106,9 @@ class work_sheet_tool():
         """
         w, h = ximg.size
         w_h_ratio = w / h
-        width: float = self.active_sheet.column_dimensions[target_cell.column_letter].width
+        width: float = 30
+        if target_cell.column_letter in self.active_sheet.column_dimensions:
+            width = self.active_sheet.column_dimensions[target_cell.column_letter].width
         height: float = self.active_sheet.row_dimensions[target_cell.row].height
         if width is None:
             width = 30
@@ -118,6 +124,25 @@ class work_sheet_tool():
         aimg.format = "jpg"
         self.active_sheet.add_image(aimg, target_cell.coordinate)
 
+    def get_task(self, coordinate: str, val: str) -> str:
+        if "|" in val:
+            vals: [str] = val.split("|")
+            self.task_queue.append((vals[-1].split(";"), coordinate))
+            return vals[0]
+        return val
+
+    def exec_task(self, target, pos_mapping: collections.defaultdict):
+        while self.task_queue:
+            func, coordinate = self.task_queue.popleft()
+            self.dynamic_method(func, coordinate, target, pos_mapping)
+
+    def replace_pos(self, start: int, col: int, pos: list):
+        n = start
+        for i in range(start + 1, len(pos)):
+            if pos[i][col] != 0:
+                pos[i][col], pos[n][col] = pos[n][col], pos[i][col]
+                n = i
+
     def write_sheet(self, source: Worksheet, obj_value: dict, target: Worksheet):
         """
         查找${}里的值 跟obj_value进行比对、替换
@@ -127,37 +152,35 @@ class work_sheet_tool():
         :return:
         """
         pos: list = [list(row) for row in source.iter_rows()]
-        pos_mapping: collections.defaultdict = collections.defaultdict(list)
+        pos_mapping: collections.defaultdict = collections.defaultdict(dict)
         rlen: int = len(pos)
         clen: int = len(pos[0])
         i: int = 0
         w: int = 0
-        start_row: int = 0
-        end_row: int = 0
-        merge_dict: dict = {}
         while i < rlen:
             j: int = 0
             maxn: int = 0
-            if i - w not in pos_mapping.keys():
-                pos_mapping[i - w].append(i)
             while j < clen:
                 try:
                     if pos[i][j] == 0:
-                        pos[i][j] = copy.copy(pos[i - 1][j])
-                        if f"{start_row}-{j}" not in merge_dict and pos[start_row][j].value is not None and \
-                                pos[start_row][j].value != "":
-                            merge_dict[f"{start_row}-{j}"] = [start_row + 1, j + 1, end_row + 1, j + 1]
-                    if isinstance(pos[i][j].value, str):
+                        self.replace_pos(i, j, pos)
+                    if j not in pos_mapping[i]:
+                        pos_mapping[i].setdefault(j, []).append(
+                            pos_mapping[i - 1][j][-1] + 1 if i - 1 > 0 else i
+                        )
+                    if isinstance(pos[i][j], Cell) and isinstance(pos[i][j].value, str):
                         col: Cell = pos[i][j]
                         match_value: list = re.findall('\${(.+)}', col.value)
                         if len(match_value) > 0:
-                            match_value_str: str = match_value[0]
+                            match_value_str: str = self.get_task(col.coordinate, match_value[0])
                             index: int = match_value_str.find("*")
                             n: int = 0
                             if index > 0:
                                 while True:
                                     key: str = f"{match_value_str[:index]}{n}{match_value_str[index + 1:]}"
                                     if key in obj_value.keys():
+                                        if n + i not in pos_mapping[i][j]:
+                                            pos_mapping[i][j].append(n + i)
                                         if n == 0:
                                             col.value = obj_value[key]
                                         elif n + i >= len(pos) or pos[n + i][j] != 0:
@@ -166,12 +189,11 @@ class work_sheet_tool():
                                             ccol.value = obj_value[key]
                                             ls_col[j] = ccol
                                             pos.insert(n + i, ls_col)
-                                            if n + i not in pos_mapping.keys() and n + i not in pos_mapping[i - w]:
-                                                pos_mapping[i - w].append(n + i)
                                         else:
                                             ccol = copy.copy(col)
                                             ccol.value = obj_value[key]
                                             pos[n + i][j] = ccol
+
                                         n += 1
                                     else:
                                         break
@@ -184,32 +206,28 @@ class work_sheet_tool():
             if maxn > 0:
                 rlen += maxn
                 w += maxn
-                start_row, end_row = i, i + maxn
             i += 1
         target.insert_rows(len(pos))
         if len(source.column_dimensions) > 0:
             target.column_dimensions = copy.deepcopy(source.column_dimensions)
         for index in source.row_dimensions:
-            for pm in pos_mapping.get(index - 1, []):
+            for pm in max(list(pos_mapping[index - 1].values())):
                 height = source.row_dimensions[index].height
                 if height is None:
                     height = 30
                 target.row_dimensions[pm + 1].height = height
         for i, r in enumerate(pos):
             for j, c in enumerate(r):
-                source_cell: [Cell, MergedCell] = pos[i][j]
-                target_cell: Cell = target.cell(i + 1, j + 1)
-                self.copy_cell(source_cell, target_cell)
+                if isinstance(pos[i][j], Cell):
+                    source_cell: [Cell, MergedCell] = pos[i][j]
+                    target_cell: Cell = target.cell(i + 1, j + 1)
+                    self.copy_cell(source_cell, target_cell)
         for cell in source.merged_cells:
-            cell_min_num = pos_mapping[cell.min_row - 1][0] + 1
-            cell_max_num = pos_mapping[cell.max_row - 1][0] + 1
+            cell_min_num = pos_mapping[cell.min_row - 1][cell.min_col - 1][0] + 1
+            cell_max_num = pos_mapping[cell.max_row - 1][cell.max_col - 1][0] + 1
             target.merge_cells(start_row=cell_min_num, start_column=cell.min_col,
                             end_column=cell.max_col, end_row=cell_max_num)
-        for key in merge_dict:
-            value = merge_dict[key]
-            target.merge_cells(start_row=value[0], start_column=value[1],
-                            end_column=value[3], end_row=value[2])
-
+        self.exec_task(target, pos_mapping)
         self.write_table(source, target, pos_mapping)
         self.write_attr(source, target, pos_mapping)
 
@@ -224,8 +242,8 @@ class work_sheet_tool():
         tab: tuple
         for tab in source.tables.items():
             left_top, right_bottom = pos_char_to_num(tab[1])
-            left_top = (left_top[0], pos_mapping[left_top[1] - 1][0] + 1)
-            right_bottom = (right_bottom[0], pos_mapping.get(right_bottom[1] - 1, [right_bottom[1]])[0] + 1)
+            left_top = (left_top[0], pos_mapping[left_top[1] - 1][left_top[0] - 1][0] + 1)
+            right_bottom = (right_bottom[0], pos_mapping[right_bottom[1] - 1][right_bottom[0] - 1][-1] + 1)
             ctab = copy.deepcopy(source.tables[tab[0]])
             ctab.ref = f"{num_to_pos_char(left_top)}:{num_to_pos_char(right_bottom)}"
             ctab.autoFilter.ref = ctab.ref
