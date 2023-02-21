@@ -31,8 +31,9 @@ class work_sheet_tool():
         self.active_source_sheet: Worksheet = None
         self.task_queue = collections.deque()
         self.dynamic_method = dynamic_method
+        self.col_queue = collections.deque()
 
-    def copy_cell(self, source_cell: cell, target_cell: cell) -> None:
+    def copy_cell(self, source_cell: Cell, target_cell: Cell) -> None:
         """
         复制cell
         :param source_cell: 源cell
@@ -65,10 +66,10 @@ class work_sheet_tool():
                 right_bottom: list
                 if ":" in cell.coord:
                     left_top, right_bottom = pos_char_to_num(cell.coord)
-                    right_bottom = (right_bottom[0], pos_mapping[right_bottom[1] - 1][right_bottom[0] - 1][-1] + 1)
+                    right_bottom = (right_bottom[0], pos_mapping[right_bottom[1] - 1][-1])
                 else:
                     x, y = char_to_num(cell.coord)
-                    left_top, right_bottom = [x, y], [x, pos_mapping[y - 1][x - 1][-1] + 1]
+                    left_top, right_bottom = [x, y], [x, pos_mapping[y - 1][-1]]
 
                 for rule in con.rules:
                     target.conditional_formatting.add(f"{num_to_pos_char(left_top)}:{num_to_pos_char(right_bottom)}", rule)
@@ -131,10 +132,10 @@ class work_sheet_tool():
             return vals[0]
         return val
 
-    def exec_task(self, target, pos_mapping: collections.defaultdict):
+    def exec_task(self, target, pos_mapping: collections.defaultdict, pos: collections.defaultdict):
         while self.task_queue:
             func, coordinate = self.task_queue.popleft()
-            self.dynamic_method(func, coordinate, target, pos_mapping)
+            self.dynamic_method(func, coordinate, target, pos_mapping, pos)
 
     def replace_pos(self, start: int, col: int, pos: list):
         n = start
@@ -143,7 +144,83 @@ class work_sheet_tool():
                 pos[i][col], pos[n][col] = pos[n][col], pos[i][col]
                 n = i
 
+    def is_exce(self, col: Cell):
+        val = col.value
+        if isinstance(val, str):
+            match_value: list = re.findall('\${(.+)}', col.value)
+            return match_value
+        return []
     def write_sheet(self, source: Worksheet, obj_value: dict, target: Worksheet):
+        pos = []
+        self.col_queue.clear()
+        pos_mapping: collections.defaultdict = collections.defaultdict(list)
+        for i, row in enumerate(source.iter_rows()):
+            pos.append(len(row) * [0])
+            for j, col in enumerate(row):
+                for value in self.is_exce(col):
+                    match_value_str: str = self.get_task(col.coordinate, value)
+                    index: int = match_value_str.find("*")
+                    # 找到 ${}
+                    n = 0
+                    if index > 0:
+                        key: str = f"{match_value_str[:index]}%s{match_value_str[index + 1:]}"
+                        okey = key % n
+                        if okey not in obj_value.keys():
+                            col.value = ""
+                            break
+                        col.value = obj_value[okey]
+                        self.col_queue.append((i + 1, j, n + 1, key))
+                    else:
+                        col.value = obj_value.get(match_value_str, "")
+                pos[-1][j] = col
+
+            if self.col_queue:
+                pos_mapping[i] = self.write_list(pos, obj_value)
+            else:
+                pos_mapping[i] = [len(pos)]
+        target.insert_rows(len(pos))
+        for index in source.column_dimensions:
+            target.column_dimensions[index].width = source.column_dimensions[index].width
+        for index in source.row_dimensions:
+            height = source.row_dimensions[index].height
+            if height is None:
+                height = 30
+            for pm in pos_mapping[index - 1]:
+                target.row_dimensions[pm + 1].height = height
+        for i, r in enumerate(pos):
+            for j, c in enumerate(r):
+                source_cell: [Cell, MergedCell] = pos[i][j]
+                target_cell: Cell = target.cell(i + 1, j + 1)
+                self.copy_cell(source_cell, target_cell)
+        for i, cell in enumerate(source.merged_cells):
+            try:
+                cell_min_num = pos_mapping[cell.min_row - 1][0]
+                cell_max_num = pos_mapping[cell.max_row - 1][-1]
+                target.merge_cells(start_row=cell_min_num, start_column=cell.min_col,
+                                   end_column=cell.max_col, end_row=cell_max_num)
+            except:
+                traceback.print_exc()
+        self.exec_task(target, pos_mapping, pos)
+        self.write_table(source, target, pos_mapping)
+        self.write_attr(source, target, pos_mapping)
+
+    def write_list(self, pos: list, obj_value: dict) -> list:
+        tmp_row: list[Cell] = pos[-1]
+        col_list = []
+        insert_pos = [len(pos)]
+        while self.col_queue:
+            i, j, n, key = self.col_queue.popleft()
+            okey = key % n
+            if okey not in obj_value.keys():
+                continue
+            tmp_row[j].value = obj_value[okey]
+            col_list.append((i + 1, j, n + 1, key))
+        if len(col_list) > 0:
+            pos.append(tmp_row)
+            self.col_queue.extend(col_list)
+            insert_pos.extend(self.write_list(pos, obj_value))
+        return insert_pos
+    def write_shee2t(self, source: Worksheet, obj_value: dict, target: Worksheet):
         """
         查找${}里的值 跟obj_value进行比对、替换
         :param source: 源sheet
@@ -196,6 +273,7 @@ class work_sheet_tool():
 
                                         n += 1
                                     else:
+                                        col.value = ""
                                         break
                                 maxn = max(n - 1, maxn)
                             else:
@@ -208,8 +286,8 @@ class work_sheet_tool():
                 w += maxn
             i += 1
         target.insert_rows(len(pos))
-        if len(source.column_dimensions) > 0:
-            target.column_dimensions = copy.deepcopy(source.column_dimensions)
+        for index in source.column_dimensions:
+            target.column_dimensions[index].width = source.column_dimensions[index].width
         for index in source.row_dimensions:
             for pm in max(list(pos_mapping[index - 1].values())):
                 height = source.row_dimensions[index].height
@@ -222,12 +300,15 @@ class work_sheet_tool():
                     source_cell: [Cell, MergedCell] = pos[i][j]
                     target_cell: Cell = target.cell(i + 1, j + 1)
                     self.copy_cell(source_cell, target_cell)
-        for cell in source.merged_cells:
-            cell_min_num = pos_mapping[cell.min_row - 1][cell.min_col - 1][0] + 1
-            cell_max_num = pos_mapping[cell.max_row - 1][cell.max_col - 1][0] + 1
-            target.merge_cells(start_row=cell_min_num, start_column=cell.min_col,
-                            end_column=cell.max_col, end_row=cell_max_num)
-        self.exec_task(target, pos_mapping)
+        for i, cell in enumerate(source.merged_cells):
+            try:
+                cell_min_num = pos_mapping[cell.min_row - 1][cell.min_col - 1][0] + 1
+                cell_max_num = pos_mapping[cell.max_row - 1][cell.max_col - 1][0] + 1
+                target.merge_cells(start_row=cell_min_num, start_column=cell.min_col,
+                                end_column=cell.max_col, end_row=cell_max_num)
+            except:
+                traceback.print_exc()
+        self.exec_task(target, pos_mapping, pos)
         self.write_table(source, target, pos_mapping)
         self.write_attr(source, target, pos_mapping)
 
@@ -242,8 +323,8 @@ class work_sheet_tool():
         tab: tuple
         for tab in source.tables.items():
             left_top, right_bottom = pos_char_to_num(tab[1])
-            left_top = (left_top[0], pos_mapping[left_top[1] - 1][left_top[0] - 1][0] + 1)
-            right_bottom = (right_bottom[0], pos_mapping[right_bottom[1] - 1][right_bottom[0] - 1][-1] + 1)
+            left_top = (left_top[0], pos_mapping[left_top[1] - 1][0])
+            right_bottom = (right_bottom[0], pos_mapping[right_bottom[1] - 1][-1])
             ctab = copy.deepcopy(source.tables[tab[0]])
             ctab.ref = f"{num_to_pos_char(left_top)}:{num_to_pos_char(right_bottom)}"
             ctab.autoFilter.ref = ctab.ref
