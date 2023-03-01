@@ -7,9 +7,9 @@
 import math
 import re
 import time
+import re
 from queue import Queue
 from typing import List
-
 
 def to_flat(x: dict) -> dict:
     q: Queue = Queue()
@@ -33,22 +33,19 @@ def to_flat(x: dict) -> dict:
     return result
 
 def is_number(s: str) -> bool:
-    try:
-        float(s)
-        return True
-    except:
-        return False
+    return bool(re.match(r'^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$', s))
+
 def char_to_num(char: str) -> tuple:
-    for i, s in enumerate(char):
-        if is_number(s):
-            return titleToNumber(char[:i]), int(char[i:])
-    return (0, 0)
+    match = re.match(r'^([A-Za-z]+)(\d+)?$', char)
+    if not match:
+        return 0, 0
+    letters, digits = match.groups()
+    num = titleToNumber(letters)
+    digit = int(digits) if digits else 0
+    return num, digit
 
 def pos_char_to_num(char: str) -> List[tuple]:
-    res: list = []
-    for c in char.split(":"):
-        res.append(char_to_num(c))
-    return res
+    return [char_to_num(c) for c in char.split(":")]
 
 def titleToNumber(columnTitle: str) -> int:
     ans = 0
@@ -58,15 +55,19 @@ def titleToNumber(columnTitle: str) -> int:
     return ans
 
 def convertToTitle(columnNumber: int) -> str:
-    ans = list()
+    OFFSET = ord('A') - 1  # A对应的数字
+    title = ""
+    columnNumber += 1
     while columnNumber > 0:
         columnNumber -= 1
-        ans.append(chr(columnNumber % 26 + ord("A")))
+        num = columnNumber % 26
+        title = chr(num + OFFSET) + title
         columnNumber //= 26
-    return "".join(ans[::-1])
+    return title
 
 def num_to_pos_char(t: tuple) -> str:
-    return convertToTitle(t[0]) + str(t[1])
+    col, row = t
+    return f"{convertToTitle(col)}{row}"
 
 def getNowTime(format="%Y-%m-%d %H:%M:%S"):
     """
